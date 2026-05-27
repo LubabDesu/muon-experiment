@@ -1,0 +1,30 @@
+# experiment outputs
+plots/
+results/*.json
+logs/
+
+# nested upstream clone (keep separate git repo)
+modded-nanogpt/
+
+# data cache
+.mnist_data/
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# jupyter
+.ipynb_checkpoints/
+
+# local editor / agent config
+.claude/settings.local.json
+
+# OS
+.DS_Store

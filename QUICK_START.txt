@@ -1,0 +1,107 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                    MUON OPTIMIZER: PHASE 1 QUICK START                     ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+🎯 YOUR RESEARCH QUESTION:
+  "Does Muon miss important cross-layer coupling, and does it matter?"
+
+📋 PHASE 1 GOAL:
+  Get quick empirical signals to decide where to invest effort next.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🚀 FASTEST START (5 min):
+
+  cd ~/Desktop/UCSD/Spring\ 26/CSE151B/expeirments/muon
+  
+  # Run one quick experiment with Muon
+  python train_quick_signals.py --optimizer muon --steps 500
+  
+  # Check results
+  python analyze_quick_signals.py
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 RUN ALL BASELINES (15 min):
+
+  python run_experiment.py --steps 1000 --quick
+
+  This runs: Muon, SGD, Adam (1000 steps each)
+  Then: python analyze_quick_signals.py
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎯 WITH ORACLE TRACKING (30 min):
+
+  python run_experiment.py --steps 1000 --oracle
+
+  This shows: cosine_sim between Muon and oracle updates
+  Key metric: How well does Muon approximate second-order optimal?
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔍 INTERPRETING RESULTS:
+
+  1. Convergence comparison (Final Loss)
+     - If Muon ≈ SGD/Adam: Good! Layer-wise is sufficient
+     - If Muon >> others: Cross-layer info crucial?
+
+  2. Oracle alignment (cosine_sim)
+     - > 0.7: Muon matches oracle well (despite ignoring cross-layer)
+     - 0.5-0.7: Moderate divergence
+     - < 0.5: Cross-layer effects significant
+
+  3. Speed (Time/Step)
+     - Muon should be ≈ same as SGD (no major overhead)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📝 FILES CREATED FOR PHASE 1:
+
+  NEW FILES (600 lines total):
+  ✓ metrics_tracker.py       - Track metrics during training
+  ✓ optimizers.py            - Muon + baselines (SGD, Adam, Muon ablation)
+  ✓ quick_oracle.py          - Fast oracle estimator
+  ✓ train_quick_signals.py   - Main training loop (multiple optimizers)
+  ✓ analyze_quick_signals.py - Analyze results
+  ✓ run_experiment.py        - Batch runner
+  ✓ PHASE1_README.md         - Detailed usage
+  ✓ REFACTORING_SUMMARY.md   - Design decisions
+  ✓ results/                 - Output directory
+
+  UNCHANGED:
+  ✓ model.py                 - Transformer architecture
+  ✓ muon.py                  - Original Muon (reference)
+  ✓ train.py                 - Original training loop (reference)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎓 NEXT STEPS (After Phase 1):
+
+  If cosine_sim > 0.7 (Muon matches oracle):
+    → Layer-wise orthogonalization is a good approximation
+    → Phase 2: Full rigor, validation loop, publish-ready experiments
+    → Research contribution: Muon is practically robust despite simplification
+
+  If cosine_sim < 0.5 (Muon diverges):
+    → Cross-layer coupling matters
+    → Phase 2: Detailed Hessian analysis
+    → Explore hybrid approaches (Muon + periodic full CG)
+    → Research contribution: Characterize when layer-wise fails
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💡 DESIGN PHILOSOPHY:
+
+  ✓ Minimal invasiveness: All new code in new files
+  ✓ Quick signals first: Don't over-engineer before you know the question
+  ✓ Extensible to Phase 2: Built-in hooks for rigorous analysis
+  ✓ Well-documented: README, summary, quick-start for you
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+❓ QUESTIONS? See:
+  - PHASE1_README.md for full usage guide
+  - REFACTORING_SUMMARY.md for design decisions
+  - /plan.md for full Phase 1+2 roadmap
+
