@@ -28,12 +28,12 @@ def build_optimizers(
     run_mode: str,
     beta_policy: str,
     base_beta: float,
-    bank_offsets: BankBetaOffsets = DEFAULT_BANK_OFFSETS,
     lr_adam: float,
     lr_muon: float,
     weight_decay_adam: float,
     weight_decay_muon: float,
     muon_ns_steps: int,
+    bank_offsets: BankBetaOffsets = DEFAULT_BANK_OFFSETS,
 ) -> tuple[list[torch.optim.Optimizer], list[dict[str, object]]]:
     """Return optimizers list (step all) and assignment metadata rows."""
     if run_mode == "adamw":

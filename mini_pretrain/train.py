@@ -117,12 +117,12 @@ def train(cfg: TrainConfig) -> None:
         cfg.run_mode,
         cfg.beta_policy,
         cfg.base_beta,
-        cfg.bank_offsets,
         cfg.lr_adam,
         cfg.lr_muon,
         cfg.weight_decay_adam,
         cfg.weight_decay_muon,
         cfg.muon_ns_steps,
+        bank_offsets=cfg.bank_offsets,
     )
     if cfg.run_mode == "muon_bank":
         o = cfg.bank_offsets
