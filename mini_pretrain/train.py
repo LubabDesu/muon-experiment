@@ -74,6 +74,10 @@ def train(cfg: TrainConfig) -> None:
     print(f"model_params={n_params/1e6:.2f}M preset={cfg.preset} tie_weights={cfg.model.tie_weights}")
 
     batch_size = max(1, cfg.batch_tokens // cfg.model.max_seq_len)
+    print(
+        f"device={device} batch_tokens={cfg.batch_tokens} seq_len={cfg.model.max_seq_len} "
+        f"batch_size={batch_size} lr_adam={cfg.lr_adam} lr_muon={cfg.lr_muon} wd={cfg.weight_decay}"
+    )
     train_iter = create_train_iterator(
         cfg.data.data_dir,
         cfg.data.train_glob,

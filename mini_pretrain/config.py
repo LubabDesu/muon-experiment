@@ -42,8 +42,8 @@ class TrainConfig:
     steps: int = 3000
     val_every: int = 500
     batch_tokens: int = 65536
-    lr_adam: float = 3e-4
-    lr_muon: float = 0.02
+    lr_adam: float = 1e-4
+    lr_muon: float = 0.003
     weight_decay: float = 0.1
     muon_ns_steps: int = 5
     grad_clip: float = 1.0
@@ -62,7 +62,7 @@ PRESETS: dict[str, dict] = {
         "steps": 300,
         "val_every": 100,
         "log_every": 10,
-        "batch_tokens": 32768,
+        "batch_tokens": 4096,
         "model": {"n_layer": 6, "n_head": 8, "d_model": 512, "max_seq_len": 512},
         "data": {"num_train_shards": 2, "use_synthetic": True},
     },
@@ -108,6 +108,14 @@ def load_config(preset: str | None = None) -> TrainConfig:
         cfg.val_every = int(os.environ["VAL_EVERY"])
     if "BATCH_TOKENS" in os.environ:
         cfg.batch_tokens = int(os.environ["BATCH_TOKENS"])
+    if "LR_ADAM" in os.environ:
+        cfg.lr_adam = float(os.environ["LR_ADAM"])
+    if "LR_MUON" in os.environ:
+        cfg.lr_muon = float(os.environ["LR_MUON"])
+    if "WEIGHT_DECAY" in os.environ:
+        cfg.weight_decay = float(os.environ["WEIGHT_DECAY"])
+    if "MUON_NS_STEPS" in os.environ:
+        cfg.muon_ns_steps = int(os.environ["MUON_NS_STEPS"])
     if "RUN_ID" in os.environ:
         cfg.run_id = os.environ["RUN_ID"]
     if "DATA_DIR" in os.environ:
