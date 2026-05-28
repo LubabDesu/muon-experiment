@@ -42,9 +42,21 @@ python -m mini_pretrain.train --preset mini --run-mode muon_bank
 - `results/mini_pretrain/{run_id}.jsonl` — train/val metrics
 - `results/mini_pretrain/{run_id}_meta.json` — full β assignment table
 
+## Bank β offsets
+
+```bash
+# symmetric: qk = -delta, mlp = +delta, vo = 0
+export BETA_BANK_DELTA=0.02
+
+# or per-bank
+export BETA_OFFSET_QK=-0.03
+export BETA_OFFSET_MLP=0.03
+```
+
+Track runs in [`RESULTS.md`](RESULTS.md).
+
 ## OOM on L4
 
 ```bash
-export BATCH_TOKENS=32768   # halve until fits
-export USE_SYNTHETIC=1      # skip download for debug
+export BATCH_TOKENS=4096    # mini on L4
 ```

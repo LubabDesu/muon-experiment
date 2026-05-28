@@ -13,7 +13,13 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from mini_pretrain.beta_assign import assignment_table, beta_for_name, should_use_muon
+from mini_pretrain.beta_assign import (
+    BankBetaOffsets,
+    DEFAULT_BANK_OFFSETS,
+    assignment_table,
+    beta_for_name,
+    should_use_muon,
+)
 from per_layer_beta.muon_beta import PerLayerBetaMuon
 
 
@@ -22,6 +28,7 @@ def build_optimizers(
     run_mode: str,
     beta_policy: str,
     base_beta: float,
+    bank_offsets: BankBetaOffsets = DEFAULT_BANK_OFFSETS,
     lr_adam: float,
     lr_muon: float,
     weight_decay_adam: float,
@@ -47,7 +54,7 @@ def build_optimizers(
             adam_params.append(param)
 
     def beta_fn(name: str, shape: tuple[int, ...]) -> float:
-        beta = beta_for_name(name, shape, beta_policy, base_beta)
+        beta = beta_for_name(name, shape, beta_policy, base_beta, bank_offsets)
         if beta is None:
             raise RuntimeError(f"Muon optimizer received non-Muon param: {name}")
         return beta
@@ -60,7 +67,7 @@ def build_optimizers(
         weight_decay=weight_decay_muon,
         ns_steps=muon_ns_steps,
     )
-    rows = assignment_table(model.named_parameters(), beta_policy, base_beta)
+    rows = assignment_table(model.named_parameters(), beta_policy, base_beta, bank_offsets)
     return [adam_opt, muon_opt], rows
 
 

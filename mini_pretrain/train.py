@@ -117,12 +117,20 @@ def train(cfg: TrainConfig) -> None:
         cfg.run_mode,
         cfg.beta_policy,
         cfg.base_beta,
+        cfg.bank_offsets,
         cfg.lr_adam,
         cfg.lr_muon,
         cfg.weight_decay_adam,
         cfg.weight_decay_muon,
         cfg.muon_ns_steps,
     )
+    if cfg.run_mode == "muon_bank":
+        o = cfg.bank_offsets
+        print(
+            f"bank_offsets: qk={o.qk:+.4f} vo={o.vo:+.4f} mlp={o.mlp:+.4f} "
+            f"(betas @ base={cfg.base_beta}: "
+            f"qk={cfg.base_beta + o.qk:.3f} vo={cfg.base_beta + o.vo:.3f} mlp={cfg.base_beta + o.mlp:.3f})"
+        )
     print_assignment(assign_rows, cfg.beta_policy, cfg.run_mode)
 
     results_path = Path(cfg.results_dir) / f"{cfg.run_id}.jsonl"
@@ -134,6 +142,12 @@ def train(cfg: TrainConfig) -> None:
                 "run_id": cfg.run_id,
                 "run_mode": cfg.run_mode,
                 "beta_policy": cfg.beta_policy,
+                "base_beta": cfg.base_beta,
+                "bank_offsets": {
+                    "qk": cfg.bank_offsets.qk,
+                    "vo": cfg.bank_offsets.vo,
+                    "mlp": cfg.bank_offsets.mlp,
+                },
                 "preset": cfg.preset,
                 "seed": cfg.seed,
                 "steps": cfg.steps,

@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 
+from mini_pretrain.beta_assign import BankBetaOffsets
+
 
 @dataclass
 class ModelConfig:
@@ -38,6 +40,7 @@ class TrainConfig:
     run_mode: str = "muon_global"  # adamw | muon_global | muon_bank
     beta_policy: str = "global"
     base_beta: float = 0.95
+    bank_offsets: BankBetaOffsets = field(default_factory=BankBetaOffsets)
     seed: int = 0
     steps: int = 3000
     val_every: int = 500
@@ -139,6 +142,21 @@ def load_config(preset: str | None = None) -> TrainConfig:
     cfg.data.use_synthetic = os.environ.get("USE_SYNTHETIC", "0").lower() in ("1", "true", "yes")
     if "DEVICE" in os.environ:
         cfg.device = os.environ["DEVICE"]
+    if "BASE_BETA" in os.environ:
+        cfg.base_beta = float(os.environ["BASE_BETA"])
+
+    # Bank offsets: per-bank or symmetric shortcut BETA_BANK_DELTA (= magnitude for qk-/mlp+).
+    qk, vo, mlp = cfg.bank_offsets.qk, cfg.bank_offsets.vo, cfg.bank_offsets.mlp
+    if "BETA_BANK_DELTA" in os.environ:
+        delta = float(os.environ["BETA_BANK_DELTA"])
+        qk, vo, mlp = -delta, 0.0, delta
+    if "BETA_OFFSET_QK" in os.environ:
+        qk = float(os.environ["BETA_OFFSET_QK"])
+    if "BETA_OFFSET_VO" in os.environ:
+        vo = float(os.environ["BETA_OFFSET_VO"])
+    if "BETA_OFFSET_MLP" in os.environ:
+        mlp = float(os.environ["BETA_OFFSET_MLP"])
+    cfg.bank_offsets = BankBetaOffsets(qk=qk, vo=vo, mlp=mlp)
 
     if cfg.run_mode == "muon_global":
         cfg.beta_policy = "global"
@@ -151,5 +169,8 @@ def load_config(preset: str | None = None) -> TrainConfig:
 
     if not cfg.run_id:
         cfg.run_id = f"{cfg.run_mode}-{cfg.preset}-seed{cfg.seed}"
+        if cfg.run_mode == "muon_bank":
+            o = cfg.bank_offsets
+            cfg.run_id += f"-qk{o.qk:+.3f}-mlp{o.mlp:+.3f}".replace(".", "p").replace("+", "")
 
     return cfg

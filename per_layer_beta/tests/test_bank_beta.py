@@ -1,6 +1,6 @@
 import unittest
 
-from mini_pretrain.beta_assign import beta_for_name, should_use_muon
+from mini_pretrain.beta_assign import BankBetaOffsets, beta_for_name, should_use_muon
 
 
 class TestBankBeta(unittest.TestCase):
@@ -10,17 +10,25 @@ class TestBankBeta(unittest.TestCase):
 
     def test_bank_offsets(self):
         base = 0.95
+        off = BankBetaOffsets(qk=-0.01, vo=0.0, mlp=0.01)
         self.assertAlmostEqual(
-            beta_for_name("blocks.0.attn.q_proj.weight", (768, 768), "bank", base),
+            beta_for_name("blocks.0.attn.q_proj.weight", (768, 768), "bank", base, off),
             0.94,
         )
         self.assertAlmostEqual(
-            beta_for_name("blocks.0.attn.v_proj.weight", (768, 768), "bank", base),
+            beta_for_name("blocks.0.attn.v_proj.weight", (768, 768), "bank", base, off),
             0.95,
         )
         self.assertAlmostEqual(
-            beta_for_name("blocks.0.mlp.c_fc.weight", (3072, 768), "bank", base),
+            beta_for_name("blocks.0.mlp.c_fc.weight", (3072, 768), "bank", base, off),
             0.96,
+        )
+
+    def test_configurable_delta(self):
+        off = BankBetaOffsets(qk=-0.03, vo=0.0, mlp=0.03)
+        self.assertAlmostEqual(
+            beta_for_name("blocks.0.mlp.c_proj.weight", (768, 3072), "bank", 0.95, off),
+            0.98,
         )
 
     def test_global_uniform(self):
