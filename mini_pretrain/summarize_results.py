@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,6 +20,10 @@ class RunSummary:
     bank_delta: str = "—"
     val_by_step: dict[int, float] = field(default_factory=dict)
     final_train_loss: float | None = None
+    best_val: float | None = None
+    best_step: int | None = None
+    stopped_early: bool = False
+    stop_reason: str | None = None
     wall_s: float = 0.0
 
     @property
@@ -72,6 +75,13 @@ def summarize_jsonl(jsonl_path: Path) -> RunSummary:
             s.wall_s = max(s.wall_s, float(r.get("elapsed_s", 0)))
         if "train_loss" in r:
             s.final_train_loss = float(r["train_loss"])
+        if r.get("event") == "run_end":
+            if "best_val" in r:
+                s.best_val = float(r["best_val"])
+            if "best_step" in r:
+                s.best_step = int(r["best_step"])
+            s.stopped_early = bool(r.get("stopped_early", False))
+            s.stop_reason = r.get("stop_reason")
     if not s.run_mode:
         for mode in ("adamw", "muon_global", "muon_bank"):
             if run_id.startswith(mode):
@@ -111,7 +121,16 @@ def build_markdown_table(
     checkpoint_steps: list[int],
     title: str,
 ) -> str:
-    headers = ["run", "bank Δ", *[f"val@{s}" for s in checkpoint_steps], "val@final", "train@last", "wall"]
+    headers = [
+        "run",
+        "bank Δ",
+        *[f"val@{s}" for s in checkpoint_steps],
+        "best_val@step",
+        "val@final",
+        "train@last",
+        "wall",
+        "early_stop",
+    ]
     lines = [f"### {title}", "", "| " + " | ".join(headers) + " |", "| " + " | ".join(["---"] * len(headers)) + " |"]
     for s in summaries:
         row = [
@@ -120,21 +139,30 @@ def build_markdown_table(
         ]
         for step in checkpoint_steps:
             row.append(format_val(s.val_by_step.get(step)))
+        if s.best_val is not None and s.best_step is not None:
+            row.append(f"{s.best_val:.4f}@{s.best_step}")
+        else:
+            row.append("—")
         row.append(format_val(s.final_val))
         row.append(format_val(s.final_train_loss))
         row.append(format_time(s.wall_s))
+        row.append("yes" if s.stopped_early else "no")
         lines.append("| " + " | ".join(row) + " |")
 
     if len(summaries) >= 2:
-        best = min((x for x in summaries if x.final_val is not None), key=lambda x: x.final_val)
-        lines.extend(
-            [
-                "",
-                f"**Best final val:** `{best.run_mode}` ({best.final_val:.4f}) · "
-                f"**Fastest:** `{min(summaries, key=lambda x: x.wall_s).run_mode}` "
-                f"({format_time(min(s.wall_s for s in summaries))})",
-            ]
-        )
+        with_final = [x for x in summaries if x.final_val is not None]
+        if with_final:
+            best = min(with_final, key=lambda x: x.final_val)
+            fastest = min(summaries, key=lambda x: x.wall_s)
+            lines.extend(
+                [
+                    "",
+                    f"**Best final val:** `{best.run_mode}` ({best.final_val:.4f}) · "
+                    f"**Fastest:** `{fastest.run_mode}` ({format_time(fastest.wall_s)})",
+                ]
+            )
+        else:
+            lines.extend(["", "**No final validation rows found.**"])
     lines.append("")
     return "\n".join(lines)
 

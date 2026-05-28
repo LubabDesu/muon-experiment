@@ -22,6 +22,28 @@ from mini_pretrain.model_gpt import build_model
 from mini_pretrain.optim import build_optimizers, optimizer_step
 
 
+def apply_hparams_file(path: str) -> None:
+    """Load KEY=VALUE lines into environment for config parsing."""
+    file_path = Path(path)
+    if not file_path.is_absolute():
+        file_path = _ROOT / file_path
+    if not file_path.exists():
+        raise FileNotFoundError(f"hparams file not found: {file_path}")
+    for raw in file_path.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            raise ValueError(f"Invalid hparams line (expected KEY=VALUE): {raw}")
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key:
+            raise ValueError(f"Invalid hparams key in line: {raw}")
+        # Keep ad-hoc shell exports higher priority than file defaults.
+        os.environ.setdefault(key, value)
+
+
 def set_seed(seed: int) -> None:
     torch.manual_seed(seed)
     if torch.cuda.is_available():
@@ -64,6 +86,37 @@ def evaluate(
     return sum(losses) / max(1, len(losses))
 
 
+def _lr_scale(step: int, cfg: TrainConfig) -> float:
+    if cfg.steps <= 0:
+        return 1.0
+    warmup = min(cfg.lr_warmup_steps, cfg.steps)
+    if warmup > 0 and step < warmup:
+        return (step + 1) / warmup
+    if cfg.lr_schedule == "constant":
+        return 1.0
+    # cosine decay from 1.0 to cfg.min_lr_scale
+    start = warmup
+    total = max(1, cfg.steps - start)
+    t = min(max(0.0, (step - start) / total), 1.0)
+    cosine = 0.5 * (1.0 + math.cos(math.pi * t))
+    return cfg.min_lr_scale + (1.0 - cfg.min_lr_scale) * cosine
+
+
+def _set_optimizer_lrs(optimizers: list[torch.optim.Optimizer], cfg: TrainConfig, step: int) -> tuple[float, float]:
+    scale = _lr_scale(step, cfg)
+    lr_adam_now = cfg.lr_adam * scale
+    lr_muon_now = cfg.lr_muon * scale
+    if cfg.run_mode == "adamw":
+        for group in optimizers[0].param_groups:
+            group["lr"] = lr_adam_now
+        return lr_adam_now, 0.0
+    for group in optimizers[0].param_groups:
+        group["lr"] = lr_adam_now
+    for group in optimizers[1].param_groups:
+        group["lr"] = lr_muon_now
+    return lr_adam_now, lr_muon_now
+
+
 def train(cfg: TrainConfig) -> None:
     set_seed(cfg.seed)
     device = torch.device(
@@ -79,6 +132,7 @@ def train(cfg: TrainConfig) -> None:
     print(
         f"device={device} batch_tokens={cfg.batch_tokens} seq_len={cfg.model.max_seq_len} "
         f"batch_size={batch_size} lr_adam={cfg.lr_adam} lr_muon={cfg.lr_muon} "
+        f"lr_schedule={cfg.lr_schedule} warmup={cfg.lr_warmup_steps} min_lr_scale={cfg.min_lr_scale} "
         f"wd_adam={cfg.weight_decay_adam} wd_muon={cfg.weight_decay_muon} "
         f"use_synthetic={cfg.data.use_synthetic} random_guess_ce={random_ce:.4f}"
     )
@@ -158,10 +212,41 @@ def train(cfg: TrainConfig) -> None:
             indent=2,
         )
     )
+    log_jsonl(
+        results_path,
+        {
+            "event": "run_start",
+            "run_id": cfg.run_id,
+            "run_mode": cfg.run_mode,
+            "beta_policy": cfg.beta_policy,
+            "preset": cfg.preset,
+            "seed": cfg.seed,
+            "steps": cfg.steps,
+            "batch_tokens": cfg.batch_tokens,
+            "lr_adam": cfg.lr_adam,
+            "lr_muon": cfg.lr_muon,
+            "lr_schedule": cfg.lr_schedule,
+            "lr_warmup_steps": cfg.lr_warmup_steps,
+            "min_lr_scale": cfg.min_lr_scale,
+            "early_stop_patience_evals": cfg.early_stop_patience_evals,
+            "early_stop_min_delta": cfg.early_stop_min_delta,
+            "max_val_increase_from_best": cfg.max_val_increase_from_best,
+            "weight_decay_adam": cfg.weight_decay_adam,
+            "weight_decay_muon": cfg.weight_decay_muon,
+            "muon_ns_steps": cfg.muon_ns_steps,
+        },
+    )
 
     model.train()
     t0 = time.perf_counter()
+    best_val = float("inf")
+    best_step = 0
+    stale_evals = 0
+    stop_reason: str | None = None
+    final_step = 0
     for step in range(cfg.steps + 1):
+        final_step = step
+        lr_adam_now, lr_muon_now = _set_optimizer_lrs(optimizers, cfg, step)
         if step % cfg.val_every == 0 or step == cfg.steps:
             val_loss = evaluate(model, val_iter, device)
             elapsed = time.perf_counter() - t0
@@ -171,9 +256,34 @@ def train(cfg: TrainConfig) -> None:
                 "elapsed_s": elapsed,
                 "run_mode": cfg.run_mode,
                 "beta_policy": cfg.beta_policy,
+                "lr_adam": lr_adam_now,
+                "lr_muon": lr_muon_now,
             }
             log_jsonl(results_path, rec)
-            print(f"step {step}/{cfg.steps} val_loss={val_loss:.4f} elapsed={elapsed:.1f}s")
+            if val_loss + cfg.early_stop_min_delta < best_val:
+                best_val = val_loss
+                best_step = step
+                stale_evals = 0
+            else:
+                stale_evals += 1
+            print(
+                f"step {step}/{cfg.steps} val_loss={val_loss:.4f} best={best_val:.4f}@{best_step} "
+                f"lr_adam={lr_adam_now:.6g} lr_muon={lr_muon_now:.6g} elapsed={elapsed:.1f}s"
+            )
+            if (
+                cfg.max_val_increase_from_best > 0
+                and step >= cfg.val_every
+                and val_loss > best_val + cfg.max_val_increase_from_best
+            ):
+                stop_reason = (
+                    f"val_diverged: val_loss={val_loss:.4f} > best+{cfg.max_val_increase_from_best:.3f}"
+                )
+                print(f"early_stop step={step}: {stop_reason}")
+                break
+            if cfg.early_stop_patience_evals > 0 and stale_evals >= cfg.early_stop_patience_evals:
+                stop_reason = f"no_improvement_for_{stale_evals}_evals"
+                print(f"early_stop step={step}: {stop_reason}")
+                break
 
         if step == cfg.steps:
             break
@@ -182,6 +292,10 @@ def train(cfg: TrainConfig) -> None:
         x, y = x.to(device), y.to(device)
         with torch.autocast(device_type=device.type, enabled=cfg.use_amp and device.type == "cuda"):
             _, loss = model(x, y)
+        if not torch.isfinite(loss):
+            stop_reason = f"non_finite_loss at step {step}: {loss.item()}"
+            print(f"early_stop step={step}: {stop_reason}")
+            break
         loss.backward()
         if cfg.grad_clip > 0:
             torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip)
@@ -190,9 +304,31 @@ def train(cfg: TrainConfig) -> None:
         if step % cfg.log_every == 0:
             log_jsonl(
                 results_path,
-                {"step": step, "train_loss": loss.item(), "run_mode": cfg.run_mode},
+                {
+                    "step": step,
+                    "train_loss": loss.item(),
+                    "run_mode": cfg.run_mode,
+                    "lr_adam": lr_adam_now,
+                    "lr_muon": lr_muon_now,
+                },
             )
-            print(f"step {step}/{cfg.steps} train_loss={loss.item():.4f}")
+            print(
+                f"step {step}/{cfg.steps} train_loss={loss.item():.4f} "
+                f"lr_adam={lr_adam_now:.6g} lr_muon={lr_muon_now:.6g}"
+            )
+    elapsed = time.perf_counter() - t0
+    log_jsonl(
+        results_path,
+        {
+            "event": "run_end",
+            "step": final_step,
+            "elapsed_s": elapsed,
+            "best_val": best_val,
+            "best_step": best_step,
+            "stopped_early": stop_reason is not None,
+            "stop_reason": stop_reason,
+        },
+    )
 
 
 def main() -> None:
@@ -201,8 +337,16 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--preset", choices=["smoke", "mini"], default=None)
     parser.add_argument("--run-mode", choices=["adamw", "muon_global", "muon_bank"], default=None)
+    parser.add_argument(
+        "--hparams",
+        type=str,
+        default=None,
+        help="Path to KEY=VALUE file with env-style training overrides",
+    )
     args = parser.parse_args()
 
+    if args.hparams:
+        apply_hparams_file(args.hparams)
     cfg = load_config(args.preset)
     if args.run_mode:
         cfg.run_mode = args.run_mode

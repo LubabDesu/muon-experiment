@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 from mini_pretrain.beta_assign import BankBetaOffsets
 
@@ -47,6 +48,12 @@ class TrainConfig:
     batch_tokens: int = 65536
     lr_adam: float = 1e-4
     lr_muon: float = 0.003
+    lr_schedule: str = "constant"  # constant | cosine
+    lr_warmup_steps: int = 0
+    min_lr_scale: float = 0.1
+    early_stop_patience_evals: int = 0
+    early_stop_min_delta: float = 0.0
+    max_val_increase_from_best: float = 1.0
     weight_decay: float = 0.1  # legacy fallback if split envs unset
     weight_decay_adam: float | None = None
     weight_decay_muon: float | None = None
@@ -80,6 +87,16 @@ PRESETS: dict[str, dict] = {
         "val_every": 500,
         "log_every": 50,
         "batch_tokens": 65536,
+        "lr_muon": 0.002,
+        "weight_decay_adam": 0.01,
+        "weight_decay_muon": 0.001,
+        "muon_ns_steps": 3,
+        "lr_schedule": "cosine",
+        "lr_warmup_steps": 200,
+        "min_lr_scale": 0.05,
+        "early_stop_patience_evals": 4,
+        "early_stop_min_delta": 0.01,
+        "max_val_increase_from_best": 0.8,
         "model": {"n_layer": 8, "n_head": 12, "d_model": 768, "max_seq_len": 1024},
         "data": {"num_train_shards": 20},
     },
@@ -121,6 +138,18 @@ def load_config(preset: str | None = None) -> TrainConfig:
         cfg.lr_adam = float(os.environ["LR_ADAM"])
     if "LR_MUON" in os.environ:
         cfg.lr_muon = float(os.environ["LR_MUON"])
+    if "LR_SCHEDULE" in os.environ:
+        cfg.lr_schedule = os.environ["LR_SCHEDULE"].strip().lower()
+    if "LR_WARMUP_STEPS" in os.environ:
+        cfg.lr_warmup_steps = int(os.environ["LR_WARMUP_STEPS"])
+    if "MIN_LR_SCALE" in os.environ:
+        cfg.min_lr_scale = float(os.environ["MIN_LR_SCALE"])
+    if "EARLY_STOP_PATIENCE_EVALS" in os.environ:
+        cfg.early_stop_patience_evals = int(os.environ["EARLY_STOP_PATIENCE_EVALS"])
+    if "EARLY_STOP_MIN_DELTA" in os.environ:
+        cfg.early_stop_min_delta = float(os.environ["EARLY_STOP_MIN_DELTA"])
+    if "MAX_VAL_INCREASE_FROM_BEST" in os.environ:
+        cfg.max_val_increase_from_best = float(os.environ["MAX_VAL_INCREASE_FROM_BEST"])
     if "WEIGHT_DECAY" in os.environ:
         cfg.weight_decay = float(os.environ["WEIGHT_DECAY"])
     if "WEIGHT_DECAY_ADAM" in os.environ:
@@ -166,11 +195,25 @@ def load_config(preset: str | None = None) -> TrainConfig:
         pass
     else:
         raise ValueError(f"Unknown run_mode: {cfg.run_mode}")
+    if cfg.lr_schedule not in {"constant", "cosine"}:
+        raise ValueError(f"Unknown LR_SCHEDULE: {cfg.lr_schedule}")
+    if cfg.lr_warmup_steps < 0:
+        raise ValueError("LR_WARMUP_STEPS must be >= 0")
+    if not (0.0 <= cfg.min_lr_scale <= 1.0):
+        raise ValueError("MIN_LR_SCALE must be in [0, 1]")
+    if cfg.early_stop_patience_evals < 0:
+        raise ValueError("EARLY_STOP_PATIENCE_EVALS must be >= 0")
+    if cfg.early_stop_min_delta < 0:
+        raise ValueError("EARLY_STOP_MIN_DELTA must be >= 0")
+    if cfg.max_val_increase_from_best < 0:
+        raise ValueError("MAX_VAL_INCREASE_FROM_BEST must be >= 0")
 
     if not cfg.run_id:
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         cfg.run_id = f"{cfg.run_mode}-{cfg.preset}-seed{cfg.seed}"
         if cfg.run_mode == "muon_bank":
             o = cfg.bank_offsets
             cfg.run_id += f"-qk{o.qk:+.3f}-mlp{o.mlp:+.3f}".replace(".", "p").replace("+", "")
+        cfg.run_id += f"-{ts}"
 
     return cfg
