@@ -53,7 +53,12 @@ export BETA_OFFSET_QK=-0.03
 export BETA_OFFSET_MLP=0.03
 ```
 
-Track runs in [`RESULTS.md`](RESULTS.md).
+Track runs in [`RESULTS.md`](RESULTS.md). After `run_ablation.sh`, a **loss + wall-time table** is printed and appended automatically.
+
+```bash
+# manual summary of latest runs for a preset/seed
+python -m mini_pretrain.summarize_results --preset mini --seed 0 --checkpoints 500,1000,3000 --append-results-md
+```
 
 ## OOM on L4
 
