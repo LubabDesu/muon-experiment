@@ -81,8 +81,12 @@ class PerLayerBetaMuon(torch.optim.Optimizer):
                     param.add_(param, alpha=-group["lr"] * group["weight_decay"])
 
                 beta = self._betas[param]
+                grad = param.grad
+                if grad is None:
+                    continue
+                # AMP can leave grads in fp16; NS + momentum are safer in fp32.
                 update = muon_update(
-                    param.grad,
+                    grad.float(),
                     state["momentum_buffer"],
                     beta=beta,
                     ns_steps=group["ns_steps"],

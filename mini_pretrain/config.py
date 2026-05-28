@@ -133,6 +133,8 @@ def load_config(preset: str | None = None) -> TrainConfig:
         cfg.steps = int(os.environ["STEPS"])
     if "VAL_EVERY" in os.environ:
         cfg.val_every = int(os.environ["VAL_EVERY"])
+    if "LOG_EVERY" in os.environ:
+        cfg.log_every = int(os.environ["LOG_EVERY"])
     if "BATCH_TOKENS" in os.environ:
         cfg.batch_tokens = int(os.environ["BATCH_TOKENS"])
     if "LR_ADAM" in os.environ:
@@ -164,6 +166,8 @@ def load_config(preset: str | None = None) -> TrainConfig:
         cfg.weight_decay_muon = 0.0 if cfg.preset == "smoke" else cfg.weight_decay * 0.05
     if "GRAD_ACCUM_STEPS" in os.environ:
         cfg.grad_accum_steps = int(os.environ["GRAD_ACCUM_STEPS"])
+    if "GRAD_CLIP" in os.environ:
+        cfg.grad_clip = float(os.environ["GRAD_CLIP"])
     if "MUON_NS_STEPS" in os.environ:
         cfg.muon_ns_steps = int(os.environ["MUON_NS_STEPS"])
     if "RUN_ID" in os.environ:
@@ -211,12 +215,18 @@ def load_config(preset: str | None = None) -> TrainConfig:
     if cfg.max_val_increase_from_best < 0:
         raise ValueError("MAX_VAL_INCREASE_FROM_BEST must be >= 0")
 
-    if not cfg.run_id:
-        ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-        cfg.run_id = f"{cfg.run_mode}-{cfg.preset}-seed{cfg.seed}"
-        if cfg.run_mode == "muon_bank":
-            o = cfg.bank_offsets
-            cfg.run_id += f"-qk{o.qk:+.3f}-mlp{o.mlp:+.3f}".replace(".", "p").replace("+", "")
-        cfg.run_id += f"-{ts}"
-
     return cfg
+
+
+def build_run_id(cfg: TrainConfig) -> str:
+    """Build a unique run_id from the FINAL run_mode / offsets.
+
+    Call after run_mode is settled (CLI flags applied) so bank runs are not
+    mislabeled under the default run_mode and keep their bank-delta suffix.
+    """
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    run_id = f"{cfg.run_mode}-{cfg.preset}-seed{cfg.seed}"
+    if cfg.run_mode == "muon_bank":
+        o = cfg.bank_offsets
+        run_id += f"-qk{o.qk:+.3f}-mlp{o.mlp:+.3f}".replace(".", "p").replace("+", "")
+    return f"{run_id}-{ts}"

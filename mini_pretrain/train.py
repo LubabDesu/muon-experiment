@@ -16,7 +16,7 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from mini_pretrain.config import TrainConfig, load_config
+from mini_pretrain.config import TrainConfig, build_run_id, load_config
 from mini_pretrain.data import create_train_iterator, create_val_iterator
 from mini_pretrain.model_gpt import build_model
 from mini_pretrain.optim import build_optimizers, optimizer_step
@@ -118,6 +118,8 @@ def _set_optimizer_lrs(optimizers: list[torch.optim.Optimizer], cfg: TrainConfig
 
 
 def train(cfg: TrainConfig) -> None:
+    if not cfg.run_id:
+        cfg.run_id = build_run_id(cfg)
     set_seed(cfg.seed)
     device = torch.device(
         cfg.device if cfg.device != "cuda" or torch.cuda.is_available() else "cpu"
@@ -236,6 +238,8 @@ def train(cfg: TrainConfig) -> None:
             "weight_decay_adam": cfg.weight_decay_adam,
             "weight_decay_muon": cfg.weight_decay_muon,
             "muon_ns_steps": cfg.muon_ns_steps,
+            "grad_accum_steps": cfg.grad_accum_steps,
+            "grad_clip": cfg.grad_clip,
         },
     )
 
