@@ -131,7 +131,9 @@ def train(cfg: TrainConfig) -> None:
     random_ce = math.log(cfg.model.vocab_size)
     print(
         f"device={device} batch_tokens={cfg.batch_tokens} seq_len={cfg.model.max_seq_len} "
-        f"batch_size={batch_size} lr_adam={cfg.lr_adam} lr_muon={cfg.lr_muon} "
+        f"batch_size={batch_size} grad_accum={cfg.grad_accum_steps} "
+        f"effective_batch={batch_size * cfg.grad_accum_steps} "
+        f"lr_adam={cfg.lr_adam} lr_muon={cfg.lr_muon} "
         f"lr_schedule={cfg.lr_schedule} warmup={cfg.lr_warmup_steps} min_lr_scale={cfg.min_lr_scale} "
         f"wd_adam={cfg.weight_decay_adam} wd_muon={cfg.weight_decay_muon} "
         f"use_synthetic={cfg.data.use_synthetic} random_guess_ce={random_ce:.4f}"
@@ -288,32 +290,38 @@ def train(cfg: TrainConfig) -> None:
         if step == cfg.steps:
             break
 
-        x, y = train_iter.next_batch()
-        x, y = x.to(device), y.to(device)
-        with torch.autocast(device_type=device.type, enabled=cfg.use_amp and device.type == "cuda"):
-            _, loss = model(x, y)
-        if not torch.isfinite(loss):
-            stop_reason = f"non_finite_loss at step {step}: {loss.item()}"
-            print(f"early_stop step={step}: {stop_reason}")
+        accum_loss = 0.0
+        for micro in range(cfg.grad_accum_steps):
+            x, y = train_iter.next_batch()
+            x, y = x.to(device), y.to(device)
+            with torch.autocast(device_type=device.type, enabled=cfg.use_amp and device.type == "cuda"):
+                _, loss = model(x, y)
+            if not torch.isfinite(loss):
+                stop_reason = f"non_finite_loss at step {step} micro {micro}: {loss.item()}"
+                print(f"early_stop step={step}: {stop_reason}")
+                break
+            (loss / cfg.grad_accum_steps).backward()
+            accum_loss += loss.item()
+        if stop_reason is not None:
             break
-        loss.backward()
         if cfg.grad_clip > 0:
             torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip)
         optimizer_step(optimizers)
+        loss_for_log = accum_loss / cfg.grad_accum_steps
 
         if step % cfg.log_every == 0:
             log_jsonl(
                 results_path,
                 {
                     "step": step,
-                    "train_loss": loss.item(),
+                    "train_loss": loss_for_log,
                     "run_mode": cfg.run_mode,
                     "lr_adam": lr_adam_now,
                     "lr_muon": lr_muon_now,
                 },
             )
             print(
-                f"step {step}/{cfg.steps} train_loss={loss.item():.4f} "
+                f"step {step}/{cfg.steps} train_loss={loss_for_log:.4f} "
                 f"lr_adam={lr_adam_now:.6g} lr_muon={lr_muon_now:.6g}"
             )
     elapsed = time.perf_counter() - t0

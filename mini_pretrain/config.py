@@ -58,6 +58,7 @@ class TrainConfig:
     weight_decay_adam: float | None = None
     weight_decay_muon: float | None = None
     muon_ns_steps: int = 5
+    grad_accum_steps: int = 1
     grad_clip: float = 1.0
     use_amp: bool = True
     device: str = "cuda"
@@ -161,6 +162,8 @@ def load_config(preset: str | None = None) -> TrainConfig:
         cfg.weight_decay_adam = cfg.weight_decay
     if cfg.weight_decay_muon is None:
         cfg.weight_decay_muon = 0.0 if cfg.preset == "smoke" else cfg.weight_decay * 0.05
+    if "GRAD_ACCUM_STEPS" in os.environ:
+        cfg.grad_accum_steps = int(os.environ["GRAD_ACCUM_STEPS"])
     if "MUON_NS_STEPS" in os.environ:
         cfg.muon_ns_steps = int(os.environ["MUON_NS_STEPS"])
     if "RUN_ID" in os.environ:
