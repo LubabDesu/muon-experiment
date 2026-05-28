@@ -98,6 +98,18 @@ Copy row template. `delta` = `BETA_BANK_DELTA` (symmetric).
 | | mini | 0.03 | 0 | | | | | |
 | | mini | 0.02 | 1 | | | | | optional confirm |
 
+---
+
+## Stability pass — cosine profile (seed 0, Δ=0.03)
+
+Profile: `mini_pretrain/hparams/stable_mini.env` (`LR_MUON=0.002`, `MUON_NS_STEPS=3`, warmup 200, cosine decay, early stop).
+
+| run | delta | best val | val@500 | val@1000 | val@1500 | val@2000 | stop |
+|-----|-------|----------|---------|----------|----------|----------|------|
+| `muon_bank` | 0.03 | **7.0169 @ 500** | 7.0169 | 7.3400 | 7.7951 | 7.8694 | early stop: `val_loss > best + 0.800` |
+
+**Issue found:** LR schedule worked, but validation still degraded after step 500. Likely bug/config mismatch: AdamW weight decay was applied to embeddings and LayerNorm params. In Muon mode, Adam side is mostly embeddings/norms, so this can destabilize the hybrid. Fixed in `mini_pretrain/optim.py` by splitting AdamW params into decay / no-decay groups.
+
 **Command template:**
 
 ```bash
