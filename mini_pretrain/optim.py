@@ -24,12 +24,13 @@ def build_optimizers(
     base_beta: float,
     lr_adam: float,
     lr_muon: float,
-    weight_decay: float,
+    weight_decay_adam: float,
+    weight_decay_muon: float,
     muon_ns_steps: int,
 ) -> tuple[list[torch.optim.Optimizer], list[dict[str, object]]]:
     """Return optimizers list (step all) and assignment metadata rows."""
     if run_mode == "adamw":
-        opt = torch.optim.AdamW(model.parameters(), lr=lr_adam, weight_decay=weight_decay)
+        opt = torch.optim.AdamW(model.parameters(), lr=lr_adam, weight_decay=weight_decay_adam)
         rows = [
             {"name": n, "shape": tuple(p.shape), "optimizer": "adamw", "beta": None}
             for n, p in model.named_parameters()
@@ -51,12 +52,12 @@ def build_optimizers(
             raise RuntimeError(f"Muon optimizer received non-Muon param: {name}")
         return beta
 
-    adam_opt = torch.optim.AdamW(adam_params, lr=lr_adam, weight_decay=weight_decay)
+    adam_opt = torch.optim.AdamW(adam_params, lr=lr_adam, weight_decay=weight_decay_adam)
     muon_opt = PerLayerBetaMuon(
         muon_named,
         beta_for_name=beta_fn,
         lr=lr_muon,
-        weight_decay=weight_decay,
+        weight_decay=weight_decay_muon,
         ns_steps=muon_ns_steps,
     )
     rows = assignment_table(model.named_parameters(), beta_policy, base_beta)

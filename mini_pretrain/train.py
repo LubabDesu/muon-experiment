@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 import time
@@ -74,10 +75,19 @@ def train(cfg: TrainConfig) -> None:
     print(f"model_params={n_params/1e6:.2f}M preset={cfg.preset} tie_weights={cfg.model.tie_weights}")
 
     batch_size = max(1, cfg.batch_tokens // cfg.model.max_seq_len)
+    random_ce = math.log(cfg.model.vocab_size)
     print(
         f"device={device} batch_tokens={cfg.batch_tokens} seq_len={cfg.model.max_seq_len} "
-        f"batch_size={batch_size} lr_adam={cfg.lr_adam} lr_muon={cfg.lr_muon} wd={cfg.weight_decay}"
+        f"batch_size={batch_size} lr_adam={cfg.lr_adam} lr_muon={cfg.lr_muon} "
+        f"wd_adam={cfg.weight_decay_adam} wd_muon={cfg.weight_decay_muon} "
+        f"use_synthetic={cfg.data.use_synthetic} random_guess_ce={random_ce:.4f}"
     )
+    if cfg.data.use_synthetic:
+        print("WARNING: USE_SYNTHETIC=1 — random tokens only.")
+    else:
+        from mini_pretrain.data import resolve_data_dir
+
+        print(f"data_dir_resolved={resolve_data_dir(cfg.data.data_dir)}")
     train_iter = create_train_iterator(
         cfg.data.data_dir,
         cfg.data.train_glob,
@@ -98,6 +108,8 @@ def train(cfg: TrainConfig) -> None:
         cfg.data.use_synthetic,
         cfg.data.synthetic_tokens,
         cfg.model.vocab_size,
+        num_shards=cfg.data.num_train_shards,
+        train_glob=cfg.data.train_glob,
     )
 
     optimizers, assign_rows = build_optimizers(
@@ -107,7 +119,8 @@ def train(cfg: TrainConfig) -> None:
         cfg.base_beta,
         cfg.lr_adam,
         cfg.lr_muon,
-        cfg.weight_decay,
+        cfg.weight_decay_adam,
+        cfg.weight_decay_muon,
         cfg.muon_ns_steps,
     )
     print_assignment(assign_rows, cfg.beta_policy, cfg.run_mode)

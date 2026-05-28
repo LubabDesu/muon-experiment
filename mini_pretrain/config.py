@@ -44,7 +44,9 @@ class TrainConfig:
     batch_tokens: int = 65536
     lr_adam: float = 1e-4
     lr_muon: float = 0.003
-    weight_decay: float = 0.1
+    weight_decay: float = 0.1  # legacy fallback if split envs unset
+    weight_decay_adam: float | None = None
+    weight_decay_muon: float | None = None
     muon_ns_steps: int = 5
     grad_clip: float = 1.0
     use_amp: bool = True
@@ -63,8 +65,12 @@ PRESETS: dict[str, dict] = {
         "val_every": 100,
         "log_every": 10,
         "batch_tokens": 4096,
+        "lr_adam": 1e-4,
+        "lr_muon": 0.003,
+        "weight_decay_adam": 0.01,
+        "weight_decay_muon": 0.0,
         "model": {"n_layer": 6, "n_head": 8, "d_model": 512, "max_seq_len": 512},
-        "data": {"num_train_shards": 2, "use_synthetic": True},
+        "data": {"num_train_shards": 2},
     },
     "mini": {
         "steps": 3000,
@@ -72,7 +78,7 @@ PRESETS: dict[str, dict] = {
         "log_every": 50,
         "batch_tokens": 65536,
         "model": {"n_layer": 8, "n_head": 12, "d_model": 768, "max_seq_len": 1024},
-        "data": {"num_train_shards": 20, "use_synthetic": False},
+        "data": {"num_train_shards": 20},
     },
 }
 
@@ -114,14 +120,23 @@ def load_config(preset: str | None = None) -> TrainConfig:
         cfg.lr_muon = float(os.environ["LR_MUON"])
     if "WEIGHT_DECAY" in os.environ:
         cfg.weight_decay = float(os.environ["WEIGHT_DECAY"])
+    if "WEIGHT_DECAY_ADAM" in os.environ:
+        cfg.weight_decay_adam = float(os.environ["WEIGHT_DECAY_ADAM"])
+    if "WEIGHT_DECAY_MUON" in os.environ:
+        cfg.weight_decay_muon = float(os.environ["WEIGHT_DECAY_MUON"])
+
+    if cfg.weight_decay_adam is None:
+        cfg.weight_decay_adam = cfg.weight_decay
+    if cfg.weight_decay_muon is None:
+        cfg.weight_decay_muon = 0.0 if cfg.preset == "smoke" else cfg.weight_decay * 0.05
     if "MUON_NS_STEPS" in os.environ:
         cfg.muon_ns_steps = int(os.environ["MUON_NS_STEPS"])
     if "RUN_ID" in os.environ:
         cfg.run_id = os.environ["RUN_ID"]
     if "DATA_DIR" in os.environ:
         cfg.data.data_dir = os.environ["DATA_DIR"]
-    if "USE_SYNTHETIC" in os.environ:
-        cfg.data.use_synthetic = os.environ["USE_SYNTHETIC"].lower() in ("1", "true", "yes")
+    # Synthetic only when explicitly requested (never silent fallback).
+    cfg.data.use_synthetic = os.environ.get("USE_SYNTHETIC", "0").lower() in ("1", "true", "yes")
     if "DEVICE" in os.environ:
         cfg.device = os.environ["DEVICE"]
 

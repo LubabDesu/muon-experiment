@@ -1,14 +1,55 @@
-"""FineWeb .bin shard loader with synthetic fallback for smoke tests."""
+"""FineWeb .bin shard loader. Real shards only unless USE_SYNTHETIC=1."""
 
 from __future__ import annotations
 
 import argparse
-import glob
 import os
 from pathlib import Path
 
 import numpy as np
 import torch
+
+# muon/ repo root (parent of mini_pretrain/)
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def resolve_data_dir(data_dir: str) -> Path:
+    """Resolve data_dir relative to repo root, not shell cwd."""
+    p = Path(data_dir).expanduser()
+    if not p.is_absolute():
+        p = REPO_ROOT / p
+    return p.resolve()
+
+
+def find_train_shards(data_dir: Path, train_glob: str, num_shards: int) -> list[Path]:
+    direct = sorted(data_dir.glob(train_glob))
+    if direct:
+        return direct[:num_shards]
+    # HuggingFace sometimes nests files one level deeper
+    nested = sorted(data_dir.rglob("fineweb_train_*.bin"))
+    if nested:
+        return nested[:num_shards]
+    raise FileNotFoundError(
+        f"No FineWeb train shards under {data_dir}\n"
+        f"  tried: {data_dir / train_glob}\n"
+        f"  and:   {data_dir}/**/fineweb_train_*.bin\n"
+        f"Download from repo root:\n"
+        f"  python -m mini_pretrain.data --download fineweb --chunks {num_shards}\n"
+        f"Or set DATA_DIR to the folder that contains fineweb_train_*.bin"
+    )
+
+
+def find_val_shard(data_dir: Path, val_file: str) -> Path:
+    direct = data_dir / val_file
+    if direct.exists():
+        return direct
+    matches = sorted(data_dir.rglob(val_file))
+    if matches:
+        return matches[0]
+    raise FileNotFoundError(
+        f"Missing validation shard {val_file} under {data_dir}\n"
+        f"Run: python -m mini_pretrain.data --download fineweb --chunks 1"
+    )
 
 
 def load_bin_shard(path: Path) -> torch.Tensor:
@@ -31,7 +72,8 @@ def download_fineweb(num_chunks: int, data_dir: Path) -> None:
     local = data_dir
 
     def get(fname: str) -> None:
-        if not (local / fname).exists():
+        dest = local / fname
+        if not dest.exists():
             hf_hub_download(
                 repo_id="kjj0/fineweb10B-gpt2",
                 filename=fname,
@@ -93,6 +135,21 @@ def build_synthetic_stream(num_tokens: int, vocab_size: int, seed: int) -> torch
     return torch.tensor(rng.integers(0, vocab_size, size=num_tokens), dtype=torch.long)
 
 
+def describe_data_setup(
+    data_dir: str,
+    train_glob: str,
+    num_shards: int,
+    val_file: str,
+    use_synthetic: bool,
+) -> tuple[Path, list[Path], Path]:
+    if use_synthetic:
+        return Path("."), [], Path(".")
+    root = resolve_data_dir(data_dir)
+    train_files = find_train_shards(root, train_glob, num_shards)
+    val_path = find_val_shard(root, val_file)
+    return root, train_files, val_path
+
+
 def create_train_iterator(
     data_dir: str,
     train_glob: str,
@@ -105,17 +162,15 @@ def create_train_iterator(
     vocab_size: int,
 ) -> TokenBatchIterator:
     if use_synthetic:
+        print("WARNING: USE_SYNTHETIC=1 — random tokens, not FineWeb.")
         stream = build_synthetic_stream(synthetic_tokens, vocab_size, seed)
         return TokenBatchIterator([stream], batch_size, seq_len, seed=seed)
 
-    pattern = os.path.join(data_dir, train_glob)
-    files = sorted(glob.glob(pattern))[:num_shards]
-    if not files:
-        print(f"No shards at {pattern}; using synthetic data.")
-        stream = build_synthetic_stream(synthetic_tokens, vocab_size, seed)
-        return TokenBatchIterator([stream], batch_size, seq_len, seed=seed)
-
-    streams = [load_bin_shard(Path(f)) for f in files]
+    root, files, _ = describe_data_setup(data_dir, train_glob, num_shards, "", False)
+    print(f"FineWeb train: {len(files)} shard(s) from {root}")
+    for f in files:
+        print(f"  {f.name}")
+    streams = [load_bin_shard(f) for f in files]
     return TokenBatchIterator(streams, batch_size, seq_len, seed=seed)
 
 
@@ -128,16 +183,16 @@ def create_val_iterator(
     use_synthetic: bool,
     synthetic_tokens: int,
     vocab_size: int,
+    num_shards: int = 1,
+    train_glob: str = "fineweb_train_*.bin",
 ) -> TokenBatchIterator:
     if use_synthetic:
         stream = build_synthetic_stream(synthetic_tokens // 10, vocab_size, seed + 1)
         return TokenBatchIterator([stream], batch_size, seq_len, seed=seed + 1)
 
-    path = Path(data_dir) / val_file
-    if not path.exists():
-        stream = build_synthetic_stream(synthetic_tokens // 10, vocab_size, seed + 1)
-        return TokenBatchIterator([stream], batch_size, seq_len, seed=seed + 1)
-    return TokenBatchIterator([load_bin_shard(path)], batch_size, seq_len, seed=seed + 1)
+    root, _, val_path = describe_data_setup(data_dir, train_glob, num_shards, val_file, False)
+    print(f"FineWeb val: {val_path}")
+    return TokenBatchIterator([load_bin_shard(val_path)], batch_size, seq_len, seed=seed + 1)
 
 
 def main() -> None:
@@ -147,8 +202,9 @@ def main() -> None:
     parser.add_argument("--data-dir", type=str, default="data/fineweb10B")
     args = parser.parse_args()
     if args.download == "fineweb":
-        download_fineweb(args.chunks, Path(args.data_dir))
-        print(f"Downloaded {args.chunks} train shards + val to {args.data_dir}")
+        out = resolve_data_dir(args.data_dir)
+        download_fineweb(args.chunks, out)
+        print(f"Downloaded {args.chunks} train shards + val to {out}")
 
 
 if __name__ == "__main__":
