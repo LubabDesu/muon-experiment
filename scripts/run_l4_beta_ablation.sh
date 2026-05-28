@@ -23,6 +23,8 @@ cd "$ROOT/modded-nanogpt"
 export OPTIMIZER_MODE=muon
 export DISABLE_FP8=1
 export DATA_PATH="${DATA_PATH:-.}"
+# L4 = sm_89; H100 record stack defaults to sm_90 in triton_kernels CE kernel
+export CUDA_COMPUTE_CAPABILITY="${CUDA_COMPUTE_CAPABILITY:-89}"
 
 run_one() {
   local policy="$1"

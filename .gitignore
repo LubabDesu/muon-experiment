@@ -1,7 +1,9 @@
 # experiment outputs
 plots/
+results/
 results/*.json
 logs/
+data/fineweb10B/
 
 # nested upstream clone (keep separate git repo)
 modded-nanogpt/
